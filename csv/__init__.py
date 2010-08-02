@@ -150,14 +150,21 @@ class Harvester(object):
 		self._meta.referred_models = []
 		self._meta.referring_models = []
 	
-	def __getattr__(self, item):
-		if item in self._meta.fields:
-			if item in self._meta.data:
-				return self._meta.data[item]
+	def __getattribute__(self, item):
+		_meta = object.__getattribute__(self, '_meta')
+		if item in _meta.fields:
+			if item in _meta.data:
+				return _meta.data[item]
 			else:
 				raise PrematureAccessError(item)
 		else:
-			return super(Harvester, self).__getattribute__(item)
+			return object.__getattribute__(self, item)
+
+	def __setattr__(self, item, value):
+		if item in self._meta.fields:
+			self._meta.data[item] = value
+		else:
+			super(Harvester, self).__setattr__(item, value)
 	
 	def parse(self, row):
 		# clear the data from the last parsed row
@@ -184,6 +191,7 @@ class Harvester(object):
 				if not [f for f in model._meta.fields if f.name == field.name]:
 					raise ConfigurationError('The model %s does not have a field named %s, which was defined in the harvester.' % (model.__name__, field.name))
 				setattr(model, field.name, self._meta.data[field.name])
+		self.final_clean()
 		self._meta.main_models.append(model)
 		
 	def save(self):
@@ -197,4 +205,9 @@ class Harvester(object):
 			if hasattr(model, 'information_source'):
 				model.information_source = 0
 			model.save()
+	
+	# This can be overriden to implement multi-column validation once all
+	# column values have been loaded
+	def final_clean(self):
+		pass
 	
