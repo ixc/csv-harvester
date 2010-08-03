@@ -1,13 +1,18 @@
+from .. import ValidationError, DEFAULTS_FIRST
+
 class Column(object):
 	creation_counter = 0
 	
-	def __init__(self, colspan=1, **kwargs):
+	def __init__(self, colspan=1, default=None, defaults=DEFAULTS_FIRST, filters=[], **kwargs):
 		# Store the creation index and increment the global counter
 		self.creation_counter = Column.creation_counter
 		Column.creation_counter += 1
 		# Initialise properties
 		self.name = None
 		self.colspan = colspan
+		self.default = default
+		self.defaults = defaults
+		self.filters = filters
 	
 	def __cmp__(self, other):
 		# This specifies that fields should be compared based on their creation
@@ -78,10 +83,25 @@ class FloatField(Field):
 		return float(data) if data != '' else None
 
 class BooleanField(Field):
-	pass
+	def __init__(self, true_values=['y', 'yes', 't', 'true', '1'], false_values=['n', 'no', 'f', 'false', '0'], **kwargs):
+		self.true_values = true_values
+		self.false_values = false_values
+		super(BooleanField, self).__init__(**kwargs)
+		
+	def clean(self, data):
+		if isinstance(data, str):
+			if data.lower() in self.true_values:
+				return True
+			elif data.lower() in self.false_values:
+				return False
+		elif data is None:
+			return self.default
+		return bool(data)
 
 class NullBooleanField(BooleanField):
-	pass
+	def __init__(self, **kwargs):
+		kwargs['null'] = True
+		super(NullBooleanField, self).__init__(**kwargs)
 
 class ForeignKey(Field):
 	def __init__(self, model, unique_field, *args, **kwargs):
