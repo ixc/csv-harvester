@@ -49,15 +49,25 @@ class Field(Column):
 	pass
 
 class CharField(Field):
-	pass
+	def __init__(self, max_length=None, blank=False, **kwargs):
+		self.max_length = max_length
+		if 'null' not in kwargs:
+			kwargs['null'] = blank
+		super(CharField, self).__init__(**kwargs)
+	
+	def clean(self, data):
+		if self.max_length and len(data) > self.max_length:
+			raise ValidationError('The value in column %s, with a length of %s, exceeds maximum allowed length of %s.\nThe value was: %s' %
+								  (self.name, len(data), self.max_length, data))
+		return data
 
 class TextField(Field):
 	pass
 
-class EmailField(Field):
+class EmailField(CharField):
 	pass
 
-class URLField(Field):
+class URLField(CharField):
 	pass
 
 class IntegerField(Field):
