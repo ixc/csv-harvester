@@ -1,10 +1,10 @@
 from bisect import bisect
+import collections
 import csv
 import pprint
 
-from .. import ConfigurationError, ValidationError, PrematureAccessError
-from columns import Column, Field, AutoReference
-from harvester.csv.columns import ForeignKey
+from .. import ConfigurationError, ValidationError, PrematureAccessError, DEFAULTS_FIRST, DEFAULTS_LAST
+from columns import Column, Field, AutoReference, ForeignKey
 
 class Processor(object):
 	harvester = None
@@ -58,7 +58,7 @@ class Options(dict):
 		# Initialise default attributes
 		self.process_first = []
 		self.process_last = []
-		self.default_filter = lambda x: x
+		self.default_filters = []
 		self.default_column_filters = {}
 		# Load attributes from the Meta object
 		if init:
@@ -166,15 +166,42 @@ class Harvester(object):
 		else:
 			super(Harvester, self).__setattr__(item, value)
 	
+	def _apply_filter(self, filters, data):
+		if filters:
+			if isinstance(filters, collections.Callable):
+				return filters(data)
+			if hasattr(filters, '__iter__'):
+				for fltr in filters:
+					data = fltr(data)
+			else:
+				raise TypeError('Invalid filter specified. Expected iterable or callable but got %s.', type(filters))
+		return data
+	
+	def _apply_default_filters(self, field, data):
+		if field.filters:
+			return self._apply_filter(field.filters, data)
+		fieldtype_filters = self._meta.default_column_filters.get(field.__class__)
+		if fieldtype_filters:
+			return self._apply_filter(fieldtype_filters, data)
+		return self._apply_filter(self._meta.default_filter, data)
+	
 	def parse(self, row):
-		# clear the data from the last parsed row
+		# Clear the data from the last parsed row
 		self._meta.data = {}
 		for index in self._meta.processing_order:
 			if index < len(row) and index < len(self._meta.raw_fields):
 				field = self._meta.raw_fields[index]
-				data = field.clean(row[index])
+				data = row[index]
+				# Call the default filters for the field and any defined custom
+				# clean functions in order defined by the "defaults" argument
+				if field.defaults == DEFAULTS_FIRST:
+					data = self._apply_default_filters(field, data)
 				if hasattr(self, 'clean_%s_column' % field.name):
 					data = getattr(self, 'clean_%s_column' % field.name)(data)
+				if field.defaults == DEFAULTS_LAST:
+					data = self._apply_default_filters(field, data)
+				# Final field validation
+				data = field.clean(data)
 				# For foreign keys, first check referred models to see if it
 				# has already been created
 				if isinstance(field, ForeignKey):
@@ -185,13 +212,13 @@ class Harvester(object):
 						data = field.create(data)
 						self._meta.referred_models.append(data)
 				self._meta.data[field.name] = data
+		self.final_clean()
 		model = self._meta.model()
 		for field in self._meta.raw_fields:
 			if isinstance(field, Field):
 				if not [f for f in model._meta.fields if f.name == field.name]:
 					raise ConfigurationError('The model %s does not have a field named %s, which was defined in the harvester.' % (model.__name__, field.name))
 				setattr(model, field.name, self._meta.data[field.name])
-		self.final_clean()
 		self._meta.main_models.append(model)
 		
 	def save(self):
@@ -210,4 +237,11 @@ class Harvester(object):
 	# column values have been loaded
 	def final_clean(self):
 		pass
-	
+
+"""
+The idea is that field.clean() is mostly for validation, and making sure that it's
+actually possible to assign the value to the field. The clean_field_column()
+function is generally for handling special cases. Then there's the filter hierarchy,
+which goes like default_filters < default_column_filters < column(filters=[]), which
+would handle the more generic characteristics of the source data.
+"""
