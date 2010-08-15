@@ -188,6 +188,8 @@ class Harvester(object):
 	def parse(self, row):
 		# Clear the data from the last parsed row
 		self._meta.data = {}
+		
+		# call the filters for all fields
 		for index in self._meta.processing_order:
 			if index < len(row) and index < len(self._meta.raw_fields):
 				field = self._meta.raw_fields[index]
@@ -213,25 +215,38 @@ class Harvester(object):
 						self._meta.referred_models.append(data)
 				self._meta.data[field.name] = data
 		self.final_clean()
+		#make a model with the attributes in data
 		model = self._meta.model()
 		for field in self._meta.raw_fields:
 			if isinstance(field, Field):
 				if not [f for f in model._meta.fields if f.name == field.name]:
-					raise ConfigurationError('The model %s does not have a field named %s, which was defined in the harvester.' % (model.__name__, field.name))
+					raise ConfigurationError('The model %s does not have a field named %s, which was defined in the harvester.' % (model._meta, field.name))
 				setattr(model, field.name, self._meta.data[field.name])
-		self._meta.main_models.append(model)
-		
+		self._meta.main_models.append((model, self._meta.data.copy())) #fugly hack to get the post-save data in
+	
 	def save(self):
 		for model in self._meta.referred_models:
 			if not getattr(model, '_do_not_save', False):
 				model.save()
-		for model in self._meta.main_models:
+		for (model, data) in self._meta.main_models:
 			# Temporary hacks to make ArtsNSW work
 			if hasattr(model, 'lga'):
 				model.lga = model.lga
 			if hasattr(model, 'information_source'):
 				model.information_source = 0
-			model.save()
+			try:
+				model.save()
+			except Exception as e:
+				import pdb; pdb.set_trace()
+				
+			if data.has_key('activities'):
+				for a in data['activities']:
+					model.activities.add(a)
+					
+			if data.has_key('access_features'):
+				for a in data['access_features']:
+					model.access_features.add(a)
+
 	
 	# This can be overriden to implement multi-column validation once all
 	# column values have been loaded

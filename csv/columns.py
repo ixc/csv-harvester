@@ -35,6 +35,10 @@ class Reference(Column):
 		super(Reference, self).__init__(*args, **kwargs)
 		self.to_name = to
 
+#GT: No idea how this is supposed to work but here's a guess that makes ArtsNSW work
+class MultiColumn(Column):
+    pass
+
 # AutoReference columns are created automatically when multi-column columns
 # are encountered. Their creation_couter is a float, placing them between
 # the previous column and the final column that will receive the values from
@@ -80,12 +84,15 @@ class IntegerField(Field):
 
 class FloatField(Field):
 	def clean(self, data):
-		return float(data) if data != '' else None
+		if data in [None, '']:
+			return None
+		return float(data)
 
 class BooleanField(Field):
-	def __init__(self, true_values=['y', 'yes', 't', 'true', '1'], false_values=['n', 'no', 'f', 'false', '0'], **kwargs):
+	def __init__(self, true_values=['y', 'yes', 't', 'true', '1'], false_values=['n', 'no', 'f', 'false', '0'], null_values=['na', 'nil', 'not applicable', 'not available', 'information not available', 'information unavailable', 'unknown', 'don\'t know', '-', '',], **kwargs):
 		self.true_values = true_values
 		self.false_values = false_values
+		self.null_values = null_values
 		super(BooleanField, self).__init__(**kwargs)
 		
 	def clean(self, data):
@@ -94,14 +101,27 @@ class BooleanField(Field):
 				return True
 			elif data.lower() in self.false_values:
 				return False
-		elif data is None:
-			return self.default
-		return bool(data)
+			elif data.lower() == '':
+				return self.default
+		
+		raise ValidationError('The value in column %s could not be evaluated to boolean. The value was: \'%s\'' % (self.name, data))
 
 class NullBooleanField(BooleanField):
 	def __init__(self, **kwargs):
 		kwargs['null'] = True
-		super(NullBooleanField, self).__init__(**kwargs)
+		super(NullBooleanField, self).__init__( **kwargs)
+
+	def clean(self, data):
+		if isinstance(data, str):
+			if data.lower() in self.true_values:
+				return True
+			elif data.lower() in self.false_values:
+				return False
+			elif data.lower() in self.null_values:
+				return None
+		
+		raise ValidationError('The value in column %s could not be evaluated to boolean (or None). The value was: \'%s\'' % (self.name, data))	
+
 
 class ForeignKey(Field):
 	def __init__(self, model, unique_field, *args, **kwargs):
