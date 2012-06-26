@@ -3,7 +3,7 @@ import collections
 import csv
 import pprint
 
-from .. import ConfigurationError, ValidationError, PrematureAccessError, DEFAULTS_FIRST, DEFAULTS_LAST
+from constants import ConfigurationError, ValidationError, PrematureAccessError, DEFAULTS_FIRST, DEFAULTS_LAST
 from columns import Column, Field, AutoReference, ForeignKey
 
 class Processor(object):
