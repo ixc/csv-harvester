@@ -1,2 +1,3 @@
 *.pyc
 *~
+CSV_Harvester.egg-info/*

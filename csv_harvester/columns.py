@@ -1,4 +1,7 @@
-from .. import ValidationError, DEFAULTS_FIRST
+from decimal import Decimal
+
+from .constants import ValidationError, DEFAULTS_FIRST
+
 
 class Column(object):
 	creation_counter = 0
@@ -81,6 +84,10 @@ class URLField(CharField):
 
 class IntegerField(Field):
 	pass
+
+class DecimanField(Field):
+	def clean(self, data):
+		return Decimal(data)
 
 class FloatField(Field):
 	def clean(self, data):

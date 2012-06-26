@@ -3,8 +3,8 @@ import collections
 import csv
 import pprint
 
-from constants import ConfigurationError, ValidationError, PrematureAccessError, DEFAULTS_FIRST, DEFAULTS_LAST
-from columns import Column, Field, AutoReference, ForeignKey
+from .constants import ConfigurationError, ValidationError, PrematureAccessError, DEFAULTS_FIRST, DEFAULTS_LAST
+from .columns import Column, Field, AutoReference, ForeignKey
 
 class Processor(object):
 	harvester = None
