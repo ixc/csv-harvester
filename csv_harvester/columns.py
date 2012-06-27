@@ -6,21 +6,31 @@ from .constants import ValidationError, DEFAULTS_FIRST
 class Column(object):
 	creation_counter = 0
 	
-	def __init__(self, colspan=1, default=None, defaults=DEFAULTS_FIRST, filters=[], **kwargs):
+	def __init__(self, colspan=1, default=None, defaults=DEFAULTS_FIRST,
+			filters=[], **kwargs):
 		# Store the creation index and increment the global counter
 		self.creation_counter = Column.creation_counter
-		Column.creation_counter += 1
+		Column.creation_counter += colspan
 		# Initialise properties
 		self.name = None
+		self.instance = None
 		self.colspan = colspan
 		self.default = default
 		self.defaults = defaults
 		self.filters = filters
 	
 	def __cmp__(self, other):
-		# This specifies that fields should be compared based on their creation
-		# counters, allowing sorted lists to be built using bisect.
+		"""
+		Compare columns using their creation counters, allowing them to be
+		sorted in declaration order.
+		"""
 		return cmp(self.creation_counter, other.creation_counter)
+	
+	def __unicode__(self):
+		if self.instance is None:
+			return 'Unbound %s column' % type(self).__name__
+		return 'Bound %s column on <%s>.%s' % (
+			type(self).__name__, self.instance, self.name)
 	
 	def clean(self, data):
 		return data
@@ -29,11 +39,14 @@ class Column(object):
 class Ignore(Column):
 	pass
 
-# A Reference column is initialised with the name of a column it will be
-# contributing to, allowing non-sequential multi-column columns to be
-# defined in the Harvester declaration. The actual column must be defined
-# last and will receive all values from the Reference column referring to it.
 class Reference(Column):
+	"""
+	A Reference column is initialised with the name of a column it will be
+	contributing to, allowing non-sequential multi-column columns to be
+	defined in the Harvester declaration. The actual column must be defined
+	last and will receive all values from the Reference column referring to it.
+	"""
+	
 	def __init__(self, to, *args, **kwargs):
 		super(Reference, self).__init__(*args, **kwargs)
 		self.to_name = to
@@ -42,22 +55,29 @@ class Reference(Column):
 class MultiColumn(Column):
     pass
 
-# AutoReference columns are created automatically when multi-column columns
-# are encountered. Their creation_couter is a float, placing them between
-# the previous column and the final column that will receive the values from
-# all preceding AutoReference columns.
 class AutoReference(Column):
+	"""
+	AutoReference columns are created automatically when multi-column columns
+	are encountered. Their creation_couter is a float, placing them between
+	the previous column and the final column that will receive the values from
+	all preceding AutoReference columns.
+	"""
+	
 	def __init__(self, val, col):
 		self.creation_counter = val.creation_counter + float(col)/val.colspan - 1
 		self.to_name = val.name
 
-# A field that does not exist in the model, but should store the value
-# nonetheless, allowing it to be used in the logic
 class VirtualField(Column):
+	"""
+	A field that does not exist in the model, but should store the value
+	nonetheless, allowing it to be used in the logic.
+	"""
 	pass
 
-# A superclass for all columns that correspond to a field on the model
 class Field(Column):
+	"""
+	A superclass for all columns that correspond to a field on the model.
+	"""
 	pass
 
 class CharField(Field):
@@ -69,8 +89,10 @@ class CharField(Field):
 	
 	def clean(self, data):
 		if self.max_length and len(data) > self.max_length:
-			raise ValidationError('The value in column %s, with a length of %s, exceeds maximum allowed length of %s.\nThe value was: %s' %
-								  (self.name, len(data), self.max_length, data))
+			raise ValidationError(
+				'The value in column %s, with a length of %s, exceeds maximum '
+				'allowed length of %s.\nThe value was: %s' %
+				(self.name, len(data), self.max_length, data))
 		return data
 
 class TextField(Field):
@@ -96,7 +118,15 @@ class FloatField(Field):
 		return float(data)
 
 class BooleanField(Field):
-	def __init__(self, true_values=['y', 'yes', 't', 'true', '1'], false_values=['n', 'no', 'f', 'false', '0'], null_values=['na', 'nil', 'not applicable', 'not available', 'information not available', 'information unavailable', 'unknown', 'don\'t know', '-', '',], **kwargs):
+	def __init__(self,
+			true_values=['y', 'yes', 't', 'true', '1'],
+			false_values=['n', 'no', 'f', 'false', '0'],
+			null_values=[
+				'na', 'nil', 'not applicable', 'not available',
+				'information not available', 'information unavailable',
+				'unknown', 'don\'t know', '-', '',
+			],
+			**kwargs):
 		self.true_values = true_values
 		self.false_values = false_values
 		self.null_values = null_values
@@ -111,7 +141,10 @@ class BooleanField(Field):
 			elif data.lower() == '':
 				return self.default
 		
-		raise ValidationError('The value in column %s could not be evaluated to boolean. The value was: \'%s\'' % (self.name, data))
+		raise ValidationError(
+			'The value in column %s could not be evaluated to boolean. '
+			'The value was: \'%s\'' % (self.name, data))
+
 
 class NullBooleanField(BooleanField):
 	def __init__(self, **kwargs):
@@ -127,7 +160,9 @@ class NullBooleanField(BooleanField):
 			elif data.lower() in self.null_values:
 				return None
 		
-		raise ValidationError('The value in column %s could not be evaluated to boolean (or None). The value was: \'%s\'' % (self.name, data))	
+		raise ValidationError(
+			'The value in column %s could not be evaluated to boolean '
+			'(or None). The value was: \'%s\'' % (self.name, data))	
 
 
 class ForeignKey(Field):

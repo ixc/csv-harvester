@@ -72,14 +72,16 @@ class Options(dict):
 	def __setattr__(self, item, value):
 		self[item] = value
 
-# A metaclass used by all Harvesters to track the order of the columns
+
 class HarvesterBase(type):
+	"""
+	The metaclass used by Harvester classes to track the order of the field
+	definition and to populate/validate the Options object in _meta.
+	"""
+	
 	def __new__(cls, name, bases, attrs):
 		# Save the Meta for later
 		meta = attrs.pop('Meta', None)
-		# Check that a model has been specified
-		if attrs['__module__'] != __name__ and (not meta or not hasattr(meta, 'model')):
-			raise ConfigurationError('No model defined for harvester %s.' % name)
 		# Create the new class
 		klass = super(HarvesterBase, cls).__new__(cls, name, bases, attrs)
 		# Load the options from Meta into the "_meta" attribute of the new class
@@ -87,12 +89,6 @@ class HarvesterBase(type):
 		fields = []
 		for key, value in attrs.items():
 			if isinstance(value, Column):
-				# Column definition validation:
-				# For columns that are fields, make sure the field is defined
-				# in the model definition
-#				if isinstance(value, Field):
-#					if not [f for f in klass._meta.model._meta.fields if f.name == key]:
-#						raise ConfigurationError('The model %s does not have a field named %s, which was defined in the harvester.' % (klass._meta.model.__name__, key))
 				value.name = key
 				# Get the index the field needs to have in the fields array
 				# to maintain the order by creation_counter
@@ -108,12 +104,26 @@ class HarvesterBase(type):
 				fields.insert(idx, value)
 		klass._meta.raw_fields = fields
 		# A convenience attribute for quick name-to-field lookups
-		klass._meta.fields = dict([(f.name, f) for f in fields])
+		klass._meta.fields = dict((f.name, f) for f in fields)
 		# This will be populated with the actual values read from the file
 		klass._meta.data = {}
 		# This will contain the column titles, if available
 		klass._meta.labels = []
+		# If it's not the Harvester class defined below, validate it
+		if attrs['__module__'] != __name__:
+			klass._validate()
 		return klass
+	
+	def _validate(self):
+		"""
+		Gets called at class definition time, throws ConfigurationErrors if a
+		Harvester subclass has been poorly defined.
+		"""
+		# Check that a model has been specified
+		if 'model' not in self._meta:
+			raise ConfigurationError(
+				'No model defined for harvester %s.' % type(self).__name__)
+		
 
 class Harvester(object):
 	__metaclass__ = HarvesterBase
