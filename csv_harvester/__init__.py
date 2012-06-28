@@ -116,11 +116,6 @@ class HarvesterBase(type):
 		Gets called at class definition time, throws ConfigurationErrors if a
 		Harvester subclass has been poorly defined.
 		"""
-		# Check that a model has been specified
-		if 'model' not in self._meta:
-			raise ConfigurationError(
-				'No model defined for harvester %s.' % type(self).__name__
-			)
 		for field_name, field in self._meta.fields.items():
 			# Check that the fields referenced by other fields actually exist,
 			# and populate their referenced_by attribute if they do
@@ -137,6 +132,7 @@ class HarvesterBase(type):
 			# has that attribute, rather than ._meta.get_all_field_names(), to
 			# avoid a hard dependency with Django
 			if isinstance(field, columns.Field) \
+			and 'model' in self._meta \
 			and not hasattr(self._meta.model, field_name):
 				raise ConfigurationError(
 					'The model %s does not have an attribute named %s, which '
