@@ -1,10 +1,26 @@
-from bisect import bisect
+import bisect
 import collections
 import csv
 import pprint
+import warnings
 
-from .constants import ConfigurationError, ValidationError, PrematureAccessError, DEFAULTS_FIRST, DEFAULTS_LAST
-from .columns import Column, Field, AutoReference, ForeignKey
+# Try to find an available ordered dictionary implementation
+try:
+	from collections import OrderedDict as odict
+except ImportError:
+	try:
+		from django.utils.datastructures import SortedDict as odict
+	except ImportError:
+		try:
+			from ordereddict import OrderedDict as odict
+		except ImportError:
+			raise ImportError(
+				'Either Python 2.7, Django, or ordereddict required')
+	
+
+from . import columns, constants
+from .constants import ConfigurationError, ValidationError
+
 
 class Processor(object):
 	harvester = None
@@ -28,8 +44,6 @@ class Processor(object):
 				self.harvester._meta.labels = skip_row
 		# Read the rows
 		for row in reader:
-			if not self._row_count_validated:
-				self.validate_row(row[self.start_column - 1:])
 			self.harvester.parse(row[self.start_column - 1:])
 			self._rows_parsed += 1
 			if self.rows_to_read and self._rows_parsed >= self.rows_to_read:
@@ -38,29 +52,25 @@ class Processor(object):
 	
 	def save(self):
 		self.harvester.save()
-	
-	# Compare the number of columns in the CSV file with the number of fields
-	# defined in the harvester and inform the user of any discrepancy
-	def validate_row(self, row):
-		if len(row) < len(self.harvester._meta.fields):
-			print 'Warning: number of columns defined in harvester exceeds the number of columns in the file.'
-		elif len(row) > len(self.harvester._meta.fields):
-			print 'Warning: %s trailing columns will be ignored.' % (len(row) - len(self.harvester._meta.fields))
-		self._row_count_validated = True
 
-# A dictionary wrapper that allows values to be accessed as attributes, rather
-# than items; i.e. opts.key instead of opts[key].
-class Options(dict):
-	# Initialise the dictionary using the properties of a class passed as "init",
-	# used to initialise the _meta Options object using the Meta class definition.
+
+class ClassDict(dict):
+	"""
+	A dictionary wrapper that allows values to be accessed as attributes,
+	rather than items; i.e. opts.key instead of opts[key]. Can be initialised
+	by passing in a class definition.
+	"""
+	
 	def __init__(self, init=None):
-		super(Options, self).__init__()
+		"""
+		:param init: a class whose attributes will be used to populate the
+			dictionary. Usually the "Meta" class from a Harvester.
+		"""
+		super(ClassDict, self).__init__()
 		# Initialise default attributes
-		self.process_first = []
-		self.process_last = []
 		self.default_filters = []
 		self.default_column_filters = {}
-		# Load attributes from the Meta object
+		# Load attributes from the provided class definition
 		if init:
 			for key, value in init.__dict__.items():
 				if not key.startswith('__'):
@@ -76,7 +86,7 @@ class Options(dict):
 class HarvesterBase(type):
 	"""
 	The metaclass used by Harvester classes to track the order of the field
-	definition and to populate/validate the Options object in _meta.
+	definition and to populate/validate the ClassDict object in _meta.
 	"""
 	
 	def __new__(cls, name, bases, attrs):
@@ -85,30 +95,17 @@ class HarvesterBase(type):
 		# Create the new class
 		klass = super(HarvesterBase, cls).__new__(cls, name, bases, attrs)
 		# Load the options from Meta into the "_meta" attribute of the new class
-		klass._meta = Options(meta)
+		klass._meta = ClassDict(meta)
 		fields = []
 		for key, value in attrs.items():
-			if isinstance(value, Column):
+			if isinstance(value, columns.Column):
 				value.name = key
 				# Get the index the field needs to have in the fields array
 				# to maintain the order by creation_counter
-				idx = bisect(fields, value)
-				# Handle fields that span more than one column by filling the
-				# spanned columns except the last one with reference fields.
-				# The last column in the span will contain the actual field
-				# and will receive a list of all values in the span
-				for col in range(1, value.colspan):
-					fields.insert(idx, AutoReference(value, col))
-					idx += 1
+				idx = bisect.bisect(fields, value)
 				# Insert the field into its spot in the list
 				fields.insert(idx, value)
-		klass._meta.raw_fields = fields
-		# A convenience attribute for quick name-to-field lookups
-		klass._meta.fields = dict((f.name, f) for f in fields)
-		# This will be populated with the actual values read from the file
-		klass._meta.data = {}
-		# This will contain the column titles, if available
-		klass._meta.labels = []
+		klass._meta.fields = odict((f.name, f) for f in fields)
 		# If it's not the Harvester class defined below, validate it
 		if attrs['__module__'] != __name__:
 			klass._validate()
@@ -122,59 +119,128 @@ class HarvesterBase(type):
 		# Check that a model has been specified
 		if 'model' not in self._meta:
 			raise ConfigurationError(
-				'No model defined for harvester %s.' % type(self).__name__)
+				'No model defined for harvester %s.' % type(self).__name__
+			)
+		for field_name, field in self._meta.fields:
+			# Check that the fields referenced by other fields actually exist,
+			# and populate their referenced_by attribute if they do
+			if isinstance(field, columns.Reference):
+				if field.to_name in self._meta.fields:
+					self._meta.fields[field.to_name].referenced_by.add(field_name)
+				else:
+					raise ConfigurationError(
+						'The field %s in harvester %s references non-existent '
+						'field %s.' % (
+							field_name, type(self).__name__, field.to_name, 
+					))
+			# Check that model fields exist on the model. Checking if the model
+			# has that attribute, rather than ._meta.get_all_field_names(), to
+			# avoid a hard dependency with Django
+			if isinstance(field, columns.Field) \
+			and not hasattr(self._meta.model, field_name):
+				raise ConfigurationError(
+					'The model %s does not have an attribute named %s, which '
+					'was defined in the  %s harvester.' % (
+						self._meta.model, field.name, type(self).__name__,
+				))
 		
 
 class Harvester(object):
 	__metaclass__ = HarvesterBase
 	
-	def __init__(self):
-		# Initialise the row processing order based on the process_first/last
-		# meta attributes
-		insert_point = 0
-		self._meta.processing_order = []
-		# Load the indices of the process_first fields into the order array
-		for name in self._meta.process_first:
-			# Check if the field exists in the harvester definition
-			if name not in self._meta.fields:
-				raise ConfigurationError('The field "%s" referred to in "process_first" is undefined.' % name)
-			self._meta.processing_order.append(self._meta.raw_fields.index(self._meta.fields[name]))
-		# Append the indices of the process_last fields into the order array,
-		# keeping track of how many were inserted using "insert_point"
-		for name in self._meta.process_last:
-			# Check if the field exists in the harvester definition
-			if name not in self._meta.fields:
-				raise ConfigurationError('The field "%s" referred to in "process_last" is undefined.' % name)
-			self._meta.processing_order.append(self._meta.raw_fields.index(self._meta.fields[name]))
-			insert_point -= 1
-		# Now insert all the remaining field indices between the process first
-		# and last indices
-		for index, field in enumerate(self._meta.raw_fields):
-			if field.name not in self._meta.process_first + self._meta.process_last:
-				if insert_point < 0:
-					self._meta.processing_order.insert(insert_point, index)
-				else:
-					# No process_last fields given, append to the end
-					self._meta.processing_order.append(index)
-		self._meta.main_models = []
-		self._meta.referred_models = []
-		self._meta.referring_models = []
+	def __init__(self, data):
+		"""
+		:param data: iterable of data, usually the row read from the CSV file
+		"""
+		# Validate the number of columns in data against the number of fields
+		# expected by this harvester and warn as necessary
+		count_difference = len(row) - len(self._meta.fields)
+		if count_difference < 0:
+			warnings.warn(
+				'Number of columns defined in harvester exceeds the number of '
+				'columns in the file.',
+				constants.ColumnCountMismatch,
+			)
+		elif count_difference > 0:
+			warnings.warn(
+				'%s trailing columns will be ignored.' % count_difference,
+				constants.ColumnCountMismatch,
+			)
+		
+		# Initialise the data store
+		self._data = ClassDict()
+		self._data.raw = {}
+		self._data.clean = {}
+		
+		self._data.main_models = []
+		self._data.referred_models = []
+		self._data.referring_models = []
+		
+		# Parse the provided data and load into the raw data store
+		row = data.__iter__()
+		for field_name, field in self._meta.fields:
+			if isinstance(field, columns.Reference):
+				destination = field.to_name
+			else:
+				destination = field_name
+			# Raw data store values are always lists for consistency across
+			# single- and multi- column fields
+			if destination not in self._data.raw:
+				self._data.raw[destination] = []
+			# The value will be modified below via append() calls, so the value
+			# inside the dictionary will be modified by reference
+			value = self._data.raw[destination]
+			for i in range(field.colspan):
+				try:
+					value.append(row.next())
+				# If we run out of columns, pad the rest with Nones
+				except StopIteration:
+					value.append(None)
+		# Access all the fields to trigger parsing/validation
+		for field_name in self._meta.fields.keys():
+			getattr(self, field_name)
+		self.final_clean()
 	
 	def __getattribute__(self, item):
+		"""
+		When accessing a field attribute, return the data in that field,
+		parsing it if necessary.
+		"""
 		_meta = object.__getattribute__(self, '_meta')
 		if item in _meta.fields:
-			if item in _meta.data:
-				return _meta.data[item]
-			else:
-				raise PrematureAccessError(item)
+			_data = object.__getattribute__(self, '_data')
+			# Check if the field has already been parsed
+			if item not in _data.clean:
+				try:
+					_data.clean[item] = self._parse_field(
+						_meta.fields[item], _data.raw[item])
+				except RuntimeError, e:
+					# Check for a cyclical dependency between fields
+					if 'recursion' in e.message:
+						raise ConfigurationError(
+							'A cyclical dependency was encountered in '
+							'harvester %s triggered by field %s' % (
+								type(self).__name__, item
+						))
+					raise
+			return _data.clean[item]
 		else:
+			# Not a field, get attribute in the usual way
 			return object.__getattribute__(self, item)
 
 	def __setattr__(self, item, value):
 		if item in self._meta.fields:
-			self._meta.data[item] = value
+			self._data.clean[item] = value
 		else:
 			super(Harvester, self).__setattr__(item, value)
+	
+	def __unicode__(self):
+		"""
+		A pretty-formatted dictionary of all the data for this instance.
+		"""
+		return pprint.pformat(odict(
+			(f, getattr(self, f) for f in self._meta.fields.keys())
+		))
 	
 	def _apply_filter(self, filters, data):
 		if filters:
@@ -184,7 +250,9 @@ class Harvester(object):
 				for fltr in filters:
 					data = fltr(data)
 			else:
-				raise TypeError('Invalid filter specified. Expected iterable or callable but got %s.', type(filters))
+				raise TypeError(
+					'Invalid filter specified. Expected iterable or callable '
+					'but got %s.' % type(filters))
 		return data
 	
 	def _apply_default_filters(self, field, data):
@@ -195,72 +263,38 @@ class Harvester(object):
 			return self._apply_filter(fieldtype_filters, data)
 		return self._apply_filter(self._meta.default_filter, data)
 	
-	def parse(self, row):
-		# Clear the data from the last parsed row
-		self._meta.data = {}
+	def _parse_field(self, field, values):
+		"""
+		Parse the data for the provided field using whatever validation, clean
+		methods, and filters have been defined for that field.
 		
-		# call the filters for all fields
-		for index in self._meta.processing_order:
-			if index < len(row) and index < len(self._meta.raw_fields):
-				field = self._meta.raw_fields[index]
-				data = row[index]
-				# Call the default filters for the field and any defined custom
-				# clean functions in order defined by the "defaults" argument
-				if field.defaults == DEFAULTS_FIRST:
-					data = self._apply_default_filters(field, data)
-				if hasattr(self, 'clean_%s_column' % field.name):
-					data = getattr(self, 'clean_%s_column' % field.name)(data)
-				if field.defaults == DEFAULTS_LAST:
-					data = self._apply_default_filters(field, data)
-				# Final field validation
-				data = field.clean(data)
-				# For foreign keys, first check referred models to see if it
-				# has already been created
-				if isinstance(field, ForeignKey):
-					already_created = [mdl for mdl in self._meta.referred_models if field.match(mdl, data)]
-					if already_created:
-						data = already_created[0]
-					else:
-						data = field.create(data)
-						self._meta.referred_models.append(data)
-				self._meta.data[field.name] = data
-		self.final_clean()
-		#make a model with the attributes in data
-		model = self._meta.model()
-		for field in self._meta.raw_fields:
-			if isinstance(field, Field):
-				if not [f for f in model._meta.fields if f.name == field.name]:
-					raise ConfigurationError('The model %s does not have a field named %s, which was defined in the harvester.' % (model._meta, field.name))
-				setattr(model, field.name, self._meta.data[field.name])
-		self._meta.main_models.append((model, self._meta.data.copy())) #fugly hack to get the post-save data in
+		:param field: A Column instance representing the field being parsed.
+		:param values: A list of values to be stored in that field. Values for
+			single-column fields should contain only one item.
+		:returns: The validated and cleaned value for the field, the type of
+			which depends on the type of the field.
+		"""
+		value = values[0] if field.single_column() else values[:]
+		# Call the default filters for the field and any defined custom
+		# clean functions in order defined by the "defaults" argument
+		if field.defaults == constants.DEFAULTS_FIRST:
+			value = self._apply_default_filters(field, value)
+		if hasattr(self, 'clean_%s_column' % field.name):
+			value = getattr(self, 'clean_%s_column' % field.name)(value)
+		if field.defaults == constants.DEFAULTS_LAST:
+			value = self._apply_default_filters(field, value)
+		# Apply the column type validation, which is usually type conversion
+		value = field.clean(value)
+		return value
 	
 	def save(self):
-		for model in self._meta.referred_models:
-			if not getattr(model, '_do_not_save', False):
-				model.save()
-		for (model, data) in self._meta.main_models:
-			# Temporary hacks to make ArtsNSW work
-			if hasattr(model, 'lga'):
-				model.lga = model.lga
-			if hasattr(model, 'information_source'):
-				model.information_source = 0
-			try:
-				model.save()
-			except Exception as e:
-				import pdb; pdb.set_trace()
-				
-			if data.has_key('activities'):
-				for a in data['activities']:
-					model.activities.add(a)
-					
-			if data.has_key('access_features'):
-				for a in data['access_features']:
-					model.access_features.add(a)
+		raise NotImplementedError()
 
-	
-	# This can be overriden to implement multi-column validation once all
-	# column values have been loaded
 	def final_clean(self):
+		"""
+		This method can be overriden to implement cross-field validation once
+		all the individual fields have been validated.
+		"""
 		pass
 
 """

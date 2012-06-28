@@ -18,6 +18,7 @@ class Column(object):
 		self.default = default
 		self.defaults = defaults
 		self.filters = filters
+		self.referenced_by = set()
 	
 	def __cmp__(self, other):
 		"""
@@ -54,18 +55,6 @@ class Reference(Column):
 #GT: No idea how this is supposed to work but here's a guess that makes ArtsNSW work
 class MultiColumn(Column):
     pass
-
-class AutoReference(Column):
-	"""
-	AutoReference columns are created automatically when multi-column columns
-	are encountered. Their creation_couter is a float, placing them between
-	the previous column and the final column that will receive the values from
-	all preceding AutoReference columns.
-	"""
-	
-	def __init__(self, val, col):
-		self.creation_counter = val.creation_counter + float(col)/val.colspan - 1
-		self.to_name = val.name
 
 class VirtualField(Column):
 	"""
