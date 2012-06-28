@@ -121,7 +121,7 @@ class HarvesterBase(type):
 			raise ConfigurationError(
 				'No model defined for harvester %s.' % type(self).__name__
 			)
-		for field_name, field in self._meta.fields:
+		for field_name, field in self._meta.fields.items():
 			# Check that the fields referenced by other fields actually exist,
 			# and populate their referenced_by attribute if they do
 			if isinstance(field, columns.Reference):
@@ -140,7 +140,7 @@ class HarvesterBase(type):
 			and not hasattr(self._meta.model, field_name):
 				raise ConfigurationError(
 					'The model %s does not have an attribute named %s, which '
-					'was defined in the  %s harvester.' % (
+					'was defined in the %s harvester.' % (
 						self._meta.model, field.name, type(self).__name__,
 				))
 		
@@ -154,7 +154,7 @@ class Harvester(object):
 		"""
 		# Validate the number of columns in data against the number of fields
 		# expected by this harvester and warn as necessary
-		count_difference = len(row) - len(self._meta.fields)
+		count_difference = len(data) - len(self._meta.fields)
 		if count_difference < 0:
 			warnings.warn(
 				'Number of columns defined in harvester exceeds the number of '
@@ -178,7 +178,7 @@ class Harvester(object):
 		
 		# Parse the provided data and load into the raw data store
 		row = data.__iter__()
-		for field_name, field in self._meta.fields:
+		for field_name, field in self._meta.fields.items():
 			if isinstance(field, columns.Reference):
 				destination = field.to_name
 			else:
@@ -238,8 +238,8 @@ class Harvester(object):
 		"""
 		A pretty-formatted dictionary of all the data for this instance.
 		"""
-		return pprint.pformat(odict(
-			(f, getattr(self, f) for f in self._meta.fields.keys())
+		return pprint.pformat(dict(
+			(f, getattr(self, f)) for f in self._meta.fields.keys()
 		))
 	
 	def _apply_filter(self, filters, data):

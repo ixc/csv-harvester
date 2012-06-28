@@ -33,6 +33,9 @@ class Column(object):
 		return 'Bound %s column on <%s>.%s' % (
 			type(self).__name__, self.instance, self.name)
 	
+	def single_column(self):
+		return len(self.referenced_by) == 0
+	
 	def clean(self, data):
 		return data
 
@@ -96,8 +99,10 @@ class URLField(CharField):
 class IntegerField(Field):
 	pass
 
-class DecimanField(Field):
+class DecimalField(Field):
 	def clean(self, data):
+		if data is None or not len(data):
+			return None
 		return Decimal(data)
 
 class FloatField(Field):
