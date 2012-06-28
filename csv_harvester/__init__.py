@@ -4,22 +4,9 @@ import csv
 import pprint
 import warnings
 
-# Try to find an available ordered dictionary implementation
-try:
-	from collections import OrderedDict as odict
-except ImportError:
-	try:
-		from django.utils.datastructures import SortedDict as odict
-	except ImportError:
-		try:
-			from ordereddict import OrderedDict as odict
-		except ImportError:
-			raise ImportError(
-				'Either Python 2.7, Django, or ordereddict required')
-	
-
 from . import columns, constants
 from .constants import ConfigurationError, ValidationError
+from .utils import odict, ClassDict, CSVReader
 
 
 class Processor(object):
@@ -54,35 +41,6 @@ class Processor(object):
 		self.harvester.save()
 
 
-class ClassDict(dict):
-	"""
-	A dictionary wrapper that allows values to be accessed as attributes,
-	rather than items; i.e. opts.key instead of opts[key]. Can be initialised
-	by passing in a class definition.
-	"""
-	
-	def __init__(self, init=None):
-		"""
-		:param init: a class whose attributes will be used to populate the
-			dictionary. Usually the "Meta" class from a Harvester.
-		"""
-		super(ClassDict, self).__init__()
-		# Initialise default attributes
-		self.default_filters = []
-		self.default_column_filters = {}
-		# Load attributes from the provided class definition
-		if init:
-			for key, value in init.__dict__.items():
-				if not key.startswith('__'):
-					self[key] = value
-	
-	def __getattr__(self, item):
-		return self[item] if item in self else None
-	
-	def __setattr__(self, item, value):
-		self[item] = value
-
-
 class HarvesterBase(type):
 	"""
 	The metaclass used by Harvester classes to track the order of the field
@@ -95,7 +53,10 @@ class HarvesterBase(type):
 		# Create the new class
 		klass = super(HarvesterBase, cls).__new__(cls, name, bases, attrs)
 		# Load the options from Meta into the "_meta" attribute of the new class
-		klass._meta = ClassDict(meta)
+		klass._meta = ClassDict(meta, defaults={
+			'default_filters': [],
+			'default_column_filters': {},
+		})
 		fields = []
 		for key, value in attrs.items():
 			if isinstance(value, columns.Column):
