@@ -11,31 +11,44 @@ from .utils import odict, ClassDict, CSVReader
 
 class Processor(object):
 	harvester = None
-	label_row = None # Must be less than or equal to start_row
-	start_row = 1
-	start_column = 1
+	encoding = 'utf-8'
+	tab_separated = False
+	row_offset = 0
+	column_offset = 0
 	rows_to_read = None
+	ignore_errors = False
 	
 	def __init__(self):
-		self._rows_parsed = 0
 		self._row_count_validated = False
 		if not self.harvester:
 			raise ConfigurationError('No harvester specified for processor %s.' % self.__class__.__name__)
 
-	def parse(self, csv_path):
-		reader = csv.reader(open(csv_path))
-		# Skip lines until the start row
-		for i in range(1, self.start_row):
-			skip_row = reader.next()
-			if i == self.label_row:
-				self.harvester._meta.labels = skip_row
-		# Read the rows
-		for row in reader:
-			self.harvester.parse(row[self.start_column - 1:])
-			self._rows_parsed += 1
-			if self.rows_to_read and self._rows_parsed >= self.rows_to_read:
-				break
-		print '%s rows parsed.' % self._rows_parsed
+	def load(self, filename, **kwargs):
+		"""
+		
+		"""
+		params = {
+			'encoding': self.encoding,
+			'dialect': csv.excel_tab if self.tab_separated else csv.excel,
+		}
+		params.update(kwargs)
+		with CSVReader(filename, **params) as reader:
+			# Skip lines based on the row offset specified
+			[reader.next() for i in range(self.row_offset)]
+			# Read the rows
+			rows_read = 0
+			rows_parsed = 0
+			for row in reader:
+				try:
+					parsed = self.harvester(row[self.column_offset:])
+				except ValidationError:
+					if not self.ignore_errors:
+						raise
+					rows_parsed += 1
+				rows_read = 0
+				if self.rows_to_read and rows_parsed >= self.rows_to_read:
+					break
+			print '%s of %s rows parsed.' % (rows_parsed, rows_read)
 	
 	def save(self):
 		self.harvester.save()
@@ -103,6 +116,17 @@ class HarvesterBase(type):
 		
 
 class Harvester(object):
+	"""
+	Subclass this class to define the data structure of a CSV file. Any 
+	attributes of type :class:`columns.Column` are treated as definitions of
+	the CSV columns in the order they are defined.
+	
+	You can also specify a ``class Meta:`` attribute, which in turn can contain
+	the following attributes:
+	
+		**model**: the Django model or similar object to load the data into.
+	"""
+	
 	__metaclass__ = HarvesterBase
 	
 	def __init__(self, data):
@@ -245,7 +269,17 @@ class Harvester(object):
 		return value
 	
 	def save(self):
-		raise NotImplementedError()
+		# Can't save without a model
+		if 'model' not in self._meta:
+			raise ConfigurationError(
+				'No model defined for harvester %s.' % type(self).__name__
+			)
+		model = self._meta.model()
+		for name, field in self._meta.fields.items():
+			if isinstance(field, columns.Field):
+				setattr(model, name, getattr(self, name))
+		model.save()
+		return model
 
 	def final_clean(self):
 		"""
