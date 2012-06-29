@@ -74,6 +74,7 @@ class HarvesterBase(type):
 		for key, value in attrs.items():
 			if isinstance(value, columns.Column):
 				value.name = key
+				value.instance = klass
 				# Get the index the field needs to have in the fields array
 				# to maintain the order by creation_counter
 				idx = bisect.bisect(fields, value)

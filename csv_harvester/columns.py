@@ -29,9 +29,9 @@ class Column(object):
 	
 	def __unicode__(self):
 		if self.instance is None:
-			return 'Unbound %s column' % type(self).__name__
-		return 'Bound %s column on <%s>.%s' % (
-			type(self).__name__, self.instance, self.name)
+			return '<Unbound %s column>' % type(self).__name__
+		return '<Bound %s on %s.%s>' % (
+			type(self).__name__, self.instance.__name__, self.name)
 	
 	def single_column(self):
 		return len(self.referenced_by) == 0
