@@ -44,12 +44,13 @@ class ClassDict(dict):
 
 
 class UTF8Recoder(object):
-    def __init__(self, source):
+    def __init__(self, source, encoding):
         self._source = source
+        self._encoding = encoding
     def __iter__(self):
         return self
     def next(self):
-        return self._source.next().encode('utf-8')
+        return self._source.next().decode(self._encoding).encode('utf-8')
 
 class CSVReader(object):
     """
@@ -57,9 +58,10 @@ class CSVReader(object):
     """
 
     def __init__(self, filename, **params):
-        self._encoding = params.pop('encoding', 'utf-8')
-        self._source = codecs.open(filename, encoding=self._encoding)
-        self._reader = csv.reader(UTF8Recoder(self._source), **params)
+        encoding = params.pop('encoding', 'utf-8')
+        self._source = open(filename, mode='Urb')
+        self._reader = csv.reader(
+            UTF8Recoder(self._source, encoding), **params)
 
     def __iter__(self):
         return self
