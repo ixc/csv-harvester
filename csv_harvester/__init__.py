@@ -94,21 +94,20 @@ class HarvesterBase(type):
 		for field_name, field in self._meta.fields.items():
 			# Check that the fields referenced by other fields actually exist,
 			# and populate their referenced_by attribute if they do
-			if isinstance(field, columns.Reference):
-				if field.to_name in self._meta.fields:
-					self._meta.fields[field.to_name].referenced_by.add(field_name)
+			if field.target:
+				if field.target in self._meta.fields:
+					self._meta.fields[field.target].add_referrer(field_name)
 				else:
 					raise ConfigurationError(
-						'The field %s in harvester %s references non-existent '
-						'field %s.' % (
-							field_name, type(self).__name__, field.to_name, 
+						'%s.%s references non-existent field "%s".' % (
+							type(self).__name__, field_name, field.target, 
 					))
 			# Check that model fields exist on the model. Checking if the model
 			# has that attribute, rather than ._meta.get_all_field_names(), to
 			# avoid a hard dependency with Django
-			if isinstance(field, columns.Field) \
+			if not field.virtual and not field.target \
 			and 'model' in self._meta \
-			and not hasattr(self._meta.model, field_name):
+			and not hasattr(self._meta.model(), field_name):
 				raise ConfigurationError(
 					'The model %s does not have an attribute named %s, which '
 					'was defined in the %s harvester.' % (
@@ -161,10 +160,7 @@ class Harvester(object):
 		# Parse the provided data and load into the raw data store
 		row = data.__iter__()
 		for field_name, field in self._meta.fields.items():
-			if isinstance(field, columns.Reference):
-				destination = field.to_name
-			else:
-				destination = field_name
+			destination = field.target or field_name
 			# Raw data store values are always lists for consistency across
 			# single- and multi- column fields
 			if destination not in self._data.raw:

@@ -7,6 +7,7 @@ class Column(object):
 	creation_counter = 0
 	
 	def __init__(self, colspan=1, default=None, blank=True,
+			target=None, virtual=False,
 			defaults=constants.DEFAULTS_FIRST, filters=[]):
 		# Store the creation index and increment the global counter
 		self.creation_counter = Column.creation_counter
@@ -19,6 +20,8 @@ class Column(object):
 		self.colspan = colspan
 		self.default = default
 		self.blank = blank
+		self.target = target
+		self.virtual = True if target else virtual
 		self.defaults = defaults
 		self.filters = filters
 	
@@ -38,6 +41,9 @@ class Column(object):
 	def single_column(self):
 		return len(self.referenced_by) == 0
 	
+	def add_referrer(self, referrer):
+		self.referenced_by.add(referrer)
+	
 	def clean(self, data):
 		if data is None:
 			data = self.default
@@ -46,43 +52,21 @@ class Column(object):
 				u'Blank value in non-blank field %s.' % self)
 		return data
 
+
 # An ignored column
 class Ignore(Column):
-	pass
-
-class Reference(Column):
-	"""
-	A Reference column is initialised with the name of a column it will be
-	contributing to, allowing non-sequential multi-column columns to be
-	defined in the Harvester declaration. The actual column must be defined
-	last and will receive all values from the Reference column referring to it.
-	"""
+	def __init__(self, **kwargs):
+		kwargs.pop('virtual')
+		kwargs.pop('target')
+		super(Ignore, self).__init__(virtual=False, target=None, **kwargs)
 	
-	def __init__(self, to, *args, **kwargs):
-		super(Reference, self).__init__(*args, **kwargs)
-		self.to_name = to
-
-#GT: No idea how this is supposed to work but here's a guess that makes ArtsNSW work
-class MultiColumn(Column):
-    pass
-
-class VirtualField(Column):
-	"""
-	A field that does not exist in the model, but should store the value
-	nonetheless, allowing it to be used in the logic.
-	"""
-	pass
-
-class Field(Column):
-	"""
-	A superclass for all columns that correspond to a field on the model.
-	"""
-	pass
+	def clean(self, data):
+		return None
 
 
 # TEXT FIELDS
 
-class TextField(Field):
+class TextField(Column):
 	"""
 	No need for a separate CharField, since there's no real difference. An
 	optional ``max_length`` argument can be provided to TextFields.
@@ -107,7 +91,7 @@ class TextField(Field):
 
 # NUMERIC FIELDS
 
-class _NumericField(Field):
+class _NumericField(Column):
 	"""
 	Do not use directly. Inherit and specify a ``datatype`` argument, which
 	should be a :class:`type` object.
@@ -139,7 +123,7 @@ class DecimalField(_NumericField):
 
 # OTHER DATA TYPES
 
-class BooleanField(Field):
+class BooleanField(Column):
 	"""
 	No need for separate NullBooleanField, the ``blank`` argument can be used
 	when initialising instead.
@@ -176,7 +160,7 @@ class BooleanField(Field):
 
 # RELATIONAL FIELDS
 
-class ForeignKey(Field):
+class ForeignKey(Column):
 	def __init__(self, model, unique_field, *args, **kwargs):
 		self._model = model
 		self._unique_field = unique_field
