@@ -13,7 +13,15 @@ NULL_VALUES = (
 )
 
 class ValidationError(ValueError):
-    pass
+    def __init__(self, message, *args, **kwargs):
+        """
+        Python refuses to print exception messages if they contin non-ASCII
+        characters, but if we encode them to UTF-8 it will, and most terminals
+        will display them correctly.
+        """
+        if isinstance(message, unicode):
+            message = message.encode('utf-8')
+        super(ValidationError, self).__init__(message, *args, **kwargs)
 
 class ConfigurationError(ValueError):
     pass
