@@ -1,24 +1,26 @@
-from decimal import Decimal
+import decimal
 
-from .constants import ValidationError, DEFAULTS_FIRST
+from . import constants
 
 
 class Column(object):
 	creation_counter = 0
 	
-	def __init__(self, colspan=1, default=None, defaults=DEFAULTS_FIRST,
-			filters=[], **kwargs):
+	def __init__(self, colspan=1, default=None, blank=True,
+			defaults=constants.DEFAULTS_FIRST, filters=[]):
 		# Store the creation index and increment the global counter
 		self.creation_counter = Column.creation_counter
 		Column.creation_counter += colspan
 		# Initialise properties
 		self.name = None
 		self.instance = None
+		self.referenced_by = set()
+
 		self.colspan = colspan
 		self.default = default
+		self.blank = blank
 		self.defaults = defaults
 		self.filters = filters
-		self.referenced_by = set()
 	
 	def __cmp__(self, other):
 		"""
@@ -37,6 +39,11 @@ class Column(object):
 		return len(self.referenced_by) == 0
 	
 	def clean(self, data):
+		if data is None:
+			data = self.default
+		if data is None and not self.blank:
+			raise constants.ValidationError(
+				u'Blank value in non-blank field %s.' % self)
 		return data
 
 # An ignored column
@@ -72,92 +79,100 @@ class Field(Column):
 	"""
 	pass
 
-class CharField(Field):
-	def __init__(self, max_length=None, blank=False, **kwargs):
-		self.max_length = max_length
-		if 'null' not in kwargs:
-			kwargs['null'] = blank
-		super(CharField, self).__init__(**kwargs)
-	
-	def clean(self, data):
-		if self.max_length and len(data) > self.max_length:
-			raise ValidationError(
-				'The value in column %s, with a length of %s, exceeds maximum '
-				'allowed length of %s.\nThe value was: %s' %
-				(self.name, len(data), self.max_length, data))
-		return data
+
+# TEXT FIELDS
 
 class TextField(Field):
-	pass
-
-class EmailField(CharField):
-	pass
-
-class URLField(CharField):
-	pass
-
-class IntegerField(Field):
-	pass
-
-class DecimalField(Field):
+	"""
+	No need for a separate CharField, since there's no real difference. An
+	optional ``max_length`` argument can be provided to TextFields.
+	"""
+	
+	def __init__(self, max_length=None, **kwargs):
+		self.max_length = max_length
+		super(TextField, self).__init__(**kwargs)
+	
 	def clean(self, data):
-		if data is None or not len(data):
-			return None
-		return Decimal(data)
+		data = unicode(data)
+		if self.max_length is not None and len(data) > self.max_length:
+			raise constants.ValidationError(
+				u'Value "%s" exceeds the max_length of %s for field %s.'
+				% (data, self.max_length, self))
+		return super(TextField, self).clean(data)
 
-class FloatField(Field):
+# TODO: Text pattern matching fields, e.g. EmailField, URLField
+
+
+# NUMERIC FIELDS
+
+class _NumericField(Field):
+	"""
+	Do not use directly. Inherit and specify a ``datatype`` argument, which
+	should be a :class:`type` object.
+	"""
+	
 	def clean(self, data):
-		if data in [None, '']:
-			return None
-		return float(data)
+		try:
+			data = self.datatype(data)
+		except (ValueError, TypeError, decimal.InvalidOperation):
+			# For empty (or otherwise False) strings, pass it up for checking
+			# against the blank and default parameters.
+			if not data:
+				data = None
+			else:
+				raise constants.ValidationError(
+					u'Value "%s" could not be converted to %s for field %s.'
+					% (data, self.datatype.__name__, self))
+		return super(_NumericField, self).clean(data)
+
+class IntegerField(_NumericField):
+	datatype = int
+
+class FloatField(_NumericField):
+	datatype = float
+
+class DecimalField(_NumericField):
+	datatype = decimal.Decimal
+
+
+# OTHER DATA TYPES
 
 class BooleanField(Field):
+	"""
+	No need for separate NullBooleanField, the ``blank`` argument can be used
+	when initialising instead.
+	"""
+	
 	def __init__(self,
-			true_values=['y', 'yes', 't', 'true', '1'],
-			false_values=['n', 'no', 'f', 'false', '0'],
-			null_values=[
-				'na', 'nil', 'not applicable', 'not available',
-				'information not available', 'information unavailable',
-				'unknown', 'don\'t know', '-', '',
-			],
+			true_values=constants.TRUE_VALUES,
+			false_values=constants.FALSE_VALUES,
+			null_values=constants.NULL_VALUES,
+			case_sensitive=False,
 			**kwargs):
 		self.true_values = true_values
 		self.false_values = false_values
 		self.null_values = null_values
+		self.case_sensitive = case_sensitive
 		super(BooleanField, self).__init__(**kwargs)
 		
 	def clean(self, data):
-		if isinstance(data, str):
-			if data.lower() in self.true_values:
-				return True
-			elif data.lower() in self.false_values:
-				return False
-			elif data.lower() == '':
-				return self.default
-		
-		raise ValidationError(
-			'The value in column %s could not be evaluated to boolean. '
-			'The value was: \'%s\'' % (self.name, data))
+		value = unicode(data)
+		if not self.case_sensitive:
+			value = data.lower()
+		if value in self.true_values:
+			return True
+		elif value in self.false_values:
+			return False
+		elif value in self.null_values:
+			return super(BooleanField, self).clean(data)
+		# If the value is not explicitly recognised as a true or false value,
+		# make no assumptions, refuse to validate
+		raise constants.ValidationError(
+			u'Value "%s" could not be converted to a boolean for field %s.'
+			% (data, self))
 
 
-class NullBooleanField(BooleanField):
-	def __init__(self, **kwargs):
-		kwargs['null'] = True
-		super(NullBooleanField, self).__init__( **kwargs)
-
-	def clean(self, data):
-		if isinstance(data, str):
-			if data.lower() in self.true_values:
-				return True
-			elif data.lower() in self.false_values:
-				return False
-			elif data.lower() in self.null_values:
-				return None
-		
-		raise ValidationError(
-			'The value in column %s could not be evaluated to boolean '
-			'(or None). The value was: \'%s\'' % (self.name, data))	
-
+# RELATIONAL FIELDS
 
 class ForeignKey(Field):
 	def __init__(self, model, unique_field, *args, **kwargs):

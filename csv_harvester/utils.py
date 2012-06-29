@@ -1,4 +1,3 @@
-import codecs
 import csv
 
 # Try to find an available ordered dictionary implementation
