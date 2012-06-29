@@ -107,7 +107,8 @@ class HarvesterBase(type):
 			# avoid a hard dependency with Django
 			if not field.virtual and not field.target \
 			and 'model' in self._meta \
-			and not hasattr(self._meta.model(), field_name):
+			and not (hasattr(self._meta.model, field_name)
+			or hasattr(self._meta.model(), field_name)):
 				raise ConfigurationError(
 					'The model %s does not have an attribute named %s, which '
 					'was defined in the %s harvester.' % (
@@ -160,14 +161,13 @@ class Harvester(object):
 		# Parse the provided data and load into the raw data store
 		row = data.__iter__()
 		for field_name, field in self._meta.fields.items():
-			destination = field.target or field_name
 			# Raw data store values are always lists for consistency across
 			# single- and multi- column fields
-			if destination not in self._data.raw:
-				self._data.raw[destination] = []
+			if field_name not in self._data.raw:
+				self._data.raw[field_name] = []
 			# The value will be modified below via append() calls, so the value
 			# inside the dictionary will be modified by reference
-			value = self._data.raw[destination]
+			value = self._data.raw[field_name]
 			for i in range(field.colspan):
 				try:
 					value.append(row.next())
