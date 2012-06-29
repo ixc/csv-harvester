@@ -261,8 +261,8 @@ class Harvester(object):
 		# clean functions in order defined by the "defaults" argument
 		if field.defaults == constants.DEFAULTS_FIRST:
 			value = self._apply_default_filters(field, value)
-		if hasattr(self, 'clean_%s_column' % field.name):
-			value = getattr(self, 'clean_%s_column' % field.name)(value)
+		if hasattr(self, 'clean_%s_field' % field.name):
+			value = getattr(self, 'clean_%s_field' % field.name)(value)
 		if field.defaults == constants.DEFAULTS_LAST:
 			value = self._apply_default_filters(field, value)
 		# Apply the column type validation, which is usually type conversion

@@ -96,8 +96,10 @@ class TextField(Field):
 		data = unicode(data)
 		if self.max_length is not None and len(data) > self.max_length:
 			raise constants.ValidationError(
-				u'Value "%s" exceeds the max_length of %s for field %s.'
-				% (data, self.max_length, self))
+				u'Value "%s..." exceeds the max_length of %s for field %s.'
+				% (data[:min(self.max_length, 30)], self.max_length, self))
+		if not data:
+			data = None
 		return super(TextField, self).clean(data)
 
 # TODO: Text pattern matching fields, e.g. EmailField, URLField
