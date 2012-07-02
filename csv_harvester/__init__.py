@@ -73,7 +73,7 @@ class HarvesterBase(type):
 		})
 		fields = []
 		for key, value in attrs.items():
-			if isinstance(value, columns.Column):
+			if isinstance(value, columns.Field):
 				value.name = key
 				value.instance = klass
 				# Get the index the field needs to have in the fields array
@@ -120,7 +120,7 @@ class HarvesterBase(type):
 class Harvester(object):
 	"""
 	Subclass this class to define the data structure of a CSV file. Any 
-	attributes of type :class:`columns.Column` are treated as definitions of
+	attributes of type :class:`columns.Field` are treated as definitions of
 	the CSV columns in the order they are defined.
 	
 	You can also specify a ``class Meta:`` attribute, which in turn can contain
@@ -247,7 +247,7 @@ class Harvester(object):
 		Parse the data for the provided field using whatever validation, clean
 		methods, and filters have been defined for that field.
 		
-		:param field: A Column instance representing the field being parsed.
+		:param field: A Field instance representing the field being parsed.
 		:param values: A list of values to be stored in that field. Values for
 			single-column fields should contain only one item.
 		:returns: The validated and cleaned value for the field, the type of

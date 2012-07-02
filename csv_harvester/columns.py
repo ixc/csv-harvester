@@ -3,15 +3,15 @@ import decimal
 from . import constants
 
 
-class Column(object):
+class Field(object):
 	creation_counter = 0
 	
 	def __init__(self, colspan=1, default=None, blank=True,
 			target=None, virtual=False,
 			defaults=constants.DEFAULTS_FIRST, filters=[]):
 		# Store the creation index and increment the global counter
-		self.creation_counter = Column.creation_counter
-		Column.creation_counter += colspan
+		self.creation_counter = Field.creation_counter
+		Field.creation_counter += colspan
 		# Initialise properties
 		self.name = None
 		self.instance = None
@@ -54,7 +54,7 @@ class Column(object):
 
 
 # An ignored column
-class Ignore(Column):
+class Ignore(Field):
 	def __init__(self, **kwargs):
 		kwargs.pop('virtual')
 		kwargs.pop('target')
@@ -66,7 +66,7 @@ class Ignore(Column):
 
 # TEXT FIELDS
 
-class TextField(Column):
+class TextField(Field):
 	"""
 	No need for a separate CharField, since there's no real difference. An
 	optional ``max_length`` argument can be provided to TextFields.
@@ -91,7 +91,7 @@ class TextField(Column):
 
 # NUMERIC FIELDS
 
-class _NumericField(Column):
+class _NumericField(Field):
 	"""
 	Do not use directly. Inherit and specify a ``datatype`` argument, which
 	should be a :class:`type` object.
@@ -123,7 +123,7 @@ class DecimalField(_NumericField):
 
 # OTHER DATA TYPES
 
-class BooleanField(Column):
+class BooleanField(Field):
 	"""
 	No need for separate NullBooleanField, the ``blank`` argument can be used
 	when initialising instead.
@@ -160,7 +160,7 @@ class BooleanField(Column):
 
 # RELATIONAL FIELDS
 
-class ForeignKey(Column):
+class ForeignKey(Field):
 	def __init__(self, model, unique_field, *args, **kwargs):
 		self._model = model
 		self._unique_field = unique_field
