@@ -41,11 +41,12 @@ class Processor(object):
 			for row in reader:
 				try:
 					parsed = self.harvester(row[self.column_offset:])
-				except ValidationError:
+				except ValidationError, e:
 					if not self.ignore_errors:
 						raise
+					warnings.warn(e.message)
 					rows_parsed += 1
-				rows_read = 0
+				rows_read += 1
 				if self.rows_to_read and rows_parsed >= self.rows_to_read:
 					break
 			print '%s of %s rows parsed.' % (rows_parsed, rows_read)
