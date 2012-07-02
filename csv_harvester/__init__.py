@@ -104,9 +104,9 @@ class HarvesterBase(type):
 							type(self).__name__, field_name, field.target, 
 					))
 			# Check that model fields exist on the model. Checking if the model
-			# has that attribute, rather than ._meta.get_all_field_names(), to
-			# avoid a hard dependency with Django
-			if not field.virtual and not field.target \
+			# class or instance has that attribute, rather than via ._meta, to
+			# avoid a hard dependency with Django.
+			if field.in_model \
 			and 'model' in self._meta \
 			and not (hasattr(self._meta.model, field_name)
 			or hasattr(self._meta.model(), field_name)):
@@ -137,7 +137,8 @@ class Harvester(object):
 		"""
 		# Validate the number of columns in data against the number of fields
 		# expected by this harvester and warn as necessary
-		count_difference = len(data) - len(self._meta.fields)
+		count_difference = len(data) \
+			- len([f for f in self._meta.fields.values() if f.in_file])
 		if count_difference < 0:
 			warnings.warn(
 				'Number of columns defined in harvester exceeds the number of '
@@ -162,6 +163,8 @@ class Harvester(object):
 		# Parse the provided data and load into the raw data store
 		row = data.__iter__()
 		for field_name, field in self._meta.fields.items():
+			if not field.in_file:
+				continue
 			# Raw data store values are always lists for consistency across
 			# single- and multi- column fields
 			if field_name not in self._data.raw:
@@ -192,7 +195,7 @@ class Harvester(object):
 			if item not in _data.clean:
 				try:
 					_data.clean[item] = self._parse_field(
-						_meta.fields[item], _data.raw[item])
+						_meta.fields[item], _data.raw.get(item, [None]))
 				except RuntimeError, e:
 					# Check for a cyclical dependency between fields
 					if 'recursion' in e.message:
@@ -274,7 +277,7 @@ class Harvester(object):
 			)
 		model = self._meta.model()
 		for name, field in self._meta.fields.items():
-			if isinstance(field, columns.Field):
+			if field.in_model:
 				setattr(model, name, getattr(self, name))
 		model.save()
 		return model

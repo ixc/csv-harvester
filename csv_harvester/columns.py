@@ -7,11 +7,35 @@ class Field(object):
 	creation_counter = 0
 	
 	def __init__(self, colspan=1, default=None, blank=True,
-			target=None, virtual=False,
+			target=None, in_file=True, in_model=True,
 			defaults=constants.DEFAULTS_FIRST, filters=[]):
+		"""
+		:param colspan: the number of columns in the file used for the
+			definition of this field. If more than one, the clean functions
+			will receive a list. Has no effect if ``in_file=False``.
+		:param default: the default value for the field if read column is
+			empty.
+		:param blank: specifies whether to throw a validation error if the
+			column contains no data. The validation will fail even if a default
+			value has been provided.
+		:param target: the name of the field to pass the value from this column
+			to. The target field will receive a list of values from all the
+			fields that specify it as a target, just as a field with a
+			colspan larger than 1 would. Implies ``in_model=False``.
+		:param in_file: specifies whether this field is a column in the file
+			being read.
+		:param in_model: specifies whether a field with this name exists in the
+			model associated with the harvester. If true, the value is
+			automatically written into in on save().
+		:type colspan: integer
+		:type blank: boolean
+		:type target: string
+		:type in_file: boolean
+		:type in_model: boolean
+		"""
 		# Store the creation index and increment the global counter
 		self.creation_counter = Field.creation_counter
-		Field.creation_counter += colspan
+		Field.creation_counter += 1
 		# Initialise properties
 		self.name = None
 		self.instance = None
@@ -21,7 +45,8 @@ class Field(object):
 		self.default = default
 		self.blank = blank
 		self.target = target
-		self.virtual = True if target else virtual
+		self.in_file = in_file
+		self.in_model = False if target else in_model
 		self.defaults = defaults
 		self.filters = filters
 	
@@ -39,26 +64,32 @@ class Field(object):
 			type(self).__name__, self.instance.__name__, self.name)
 	
 	def single_column(self):
-		return len(self.referenced_by) == 0
+		columns = self.colspan if self.in_file else 1
+		return len(self.referenced_by) + columns == 1
 	
 	def add_referrer(self, referrer):
 		self.referenced_by.add(referrer)
 	
 	def clean(self, data):
-		if data is None:
-			data = self.default
 		if data is None and not self.blank:
 			raise constants.ValidationError(
 				u'Blank value in non-blank field %s.' % self)
+		elif data is None:
+			data = self.default		
 		return data
 
 
-# An ignored column
 class Ignore(Field):
+	"""
+	A convenience class for columns whose contents will be thrown away.
+	"""
+	
 	def __init__(self, **kwargs):
-		kwargs.pop('virtual')
+		kwargs.pop('in_file')
+		kwargs.pop('in_model')
 		kwargs.pop('target')
-		super(Ignore, self).__init__(virtual=False, target=None, **kwargs)
+		super(Ignore, self).__init__(
+			in_file=True, in_model=False, target=None, **kwargs)
 	
 	def clean(self, data):
 		return None
@@ -74,16 +105,17 @@ class TextField(Field):
 	
 	def __init__(self, max_length=None, **kwargs):
 		self.max_length = max_length
+		if 'default' not in kwargs:
+			kwargs['default'] = u''
 		super(TextField, self).__init__(**kwargs)
 	
 	def clean(self, data):
-		data = unicode(data)
-		if self.max_length is not None and len(data) > self.max_length:
+		if not data:
+			data = None
+		elif self.max_length is not None and len(data) > self.max_length:
 			raise constants.ValidationError(
 				u'Value "%s..." exceeds the max_length of %s for field %s.'
 				% (data[:min(self.max_length, 30)], self.max_length, self))
-		if not data:
-			data = None
 		return super(TextField, self).clean(data)
 
 # TODO: Text pattern matching fields, e.g. EmailField, URLField
