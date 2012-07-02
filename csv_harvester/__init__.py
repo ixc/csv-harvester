@@ -19,7 +19,7 @@ class Processor(object):
 	ignore_errors = False
 	
 	def __init__(self):
-		self._row_count_validated = False
+		self._harvesters = []
 		if not self.harvester:
 			raise ConfigurationError('No harvester specified for processor %s.' % self.__class__.__name__)
 
@@ -41,18 +41,20 @@ class Processor(object):
 			for row in reader:
 				try:
 					parsed = self.harvester(row[self.column_offset:])
+					self._harvesters += [parsed]
+					rows_parsed += 1
 				except ValidationError, e:
 					if not self.ignore_errors:
 						raise
 					warnings.warn(e.message)
-					rows_parsed += 1
 				rows_read += 1
 				if self.rows_to_read and rows_parsed >= self.rows_to_read:
 					break
 			print '%s of %s rows parsed.' % (rows_parsed, rows_read)
 	
 	def save(self):
-		self.harvester.save()
+		for harvester in self._harvesters:
+			harvester.save()
 
 
 class HarvesterBase(type):
