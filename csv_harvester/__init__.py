@@ -158,10 +158,6 @@ class Harvester(object):
 		self._data.raw = {}
 		self._data.clean = {}
 		
-		self._data.main_models = []
-		self._data.referred_models = []
-		self._data.referring_models = []
-		
 		# Parse the provided data and load into the raw data store
 		row = data.__iter__()
 		for field_name, field in self._meta.fields.items():
@@ -288,8 +284,21 @@ class Harvester(object):
 			if field.in_model:
 				setattr(model, name, getattr(self, name))
 		model.save()
+		# Now that we have a PK, we can save the M2Ms
+		self.save_m2m(model)
 		return model
-
+	
+	def save_m2m(self, model):
+		"""
+		:param model: A model instance to which to .add() the M2Ms.
+		"""
+		for field_name, field in self._meta.fields.items():
+			if not isinstance(field, columns.ManyToManyField):
+				continue
+			for value in getattr(self, field_name):
+				getattr(model, field_name).add(field.lookup(value))
+		
+	
 	def final_clean(self):
 		"""
 		This method can be overriden to implement cross-field validation once

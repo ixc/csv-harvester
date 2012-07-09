@@ -192,23 +192,44 @@ class BooleanField(Field):
 
 # RELATIONAL FIELDS
 
-class ForeignKey(Field):
-	def __init__(self, model, unique_field, *args, **kwargs):
-		self._model = model
-		self._unique_field = unique_field
-		super(ForeignKey, self).__init__(*args, **kwargs)
+class ManyToManyField(Field):
+	"""
+	When specifying a clean_*_field method, keep in mind that the final value
+	after cleaning is expected to be an iterable of values.
+	"""
 	
-	def match(self, model, data):
-		#if hasattr(data, '__iter__'): # Multi-column; not implemented yet
-		return getattr(model, self._unique_field) == data
+	def __init__(self, model, lookup='title', **kwargs):
+		"""
+		:param model: the related model class.
+		:param lookup: for simple Django models, is the field name on which a
+			a get_or_create call will be matched. If using a more complex
+			lookup, a callable that takes a value and returns an instance of
+			model matching it should be used.
+		"""
+		self.model = model
+		self._lookup = lookup
+		if 'default' not in kwargs:
+			kwargs['default'] = []
+		super(ManyToManyField, self).__init__(**kwargs)
 	
-	def create(self, data):
-		#if hasattr(data, '__iter__'): # Multi-column; not implemented yet
-		# First, check the database
-		try:
-			model = self._model.objects.get(**{self._unique_field: data})
-			model._do_not_save = True
-		except self._model.DoesNotExist:
-			model = self._model()
-			setattr(model, self._unique_field, data)
-		return model
+	def lookup(self, value):
+		"""
+		Converts the given value into an instance of self.model. If the field
+		was initialised with a callable ``lookup`` argument, returns the result
+		of calling it with the provided value.
+		"""
+		if callable(self._lookup):
+			return self._lookup(value)
+		else:
+			return self.model.objects.get_or_create(
+				**{self._lookup: value}
+			)[1]
+	
+	def clean(self, data):
+		# Just in case we didn't receive an iterable
+		if not hasattr(data, '__iter__') or isinstance(data, basestring):
+			data = [data]
+		# Filter out blank values, and set to None if none are left, so that
+		# the regular Field logic on blank and default values can kick in
+		data = filter(bool, data) or None
+		return super(ManyToManyField, self).clean(data)
