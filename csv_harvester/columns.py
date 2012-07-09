@@ -205,9 +205,14 @@ class ManyToManyField(Field):
 			a get_or_create call will be matched. If using a more complex
 			lookup, a callable that takes a value and returns an instance of
 			model matching it should be used.
+		
+		Note that the ``in_model`` argument has no effect here. It is set to
+		False to simplify the saving logic, but ManyToMany fields are always
+		assumed to exist on the model.
 		"""
 		self.model = model
 		self._lookup = lookup
+		kwargs['in_model'] = False
 		if 'default' not in kwargs:
 			kwargs['default'] = []
 		super(ManyToManyField, self).__init__(**kwargs)
@@ -223,7 +228,7 @@ class ManyToManyField(Field):
 		else:
 			return self.model.objects.get_or_create(
 				**{self._lookup: value}
-			)[1]
+			)[0]
 	
 	def clean(self, data):
 		# Just in case we didn't receive an iterable
