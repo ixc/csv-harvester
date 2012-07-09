@@ -180,6 +180,12 @@ class Harvester(object):
 				# If we run out of columns, pad the rest with Nones
 				except StopIteration:
 					value.append(None)
+			# If the field has a target field, append the values to that field
+			# as well
+			if field.target:
+				if field.target not in self._data.raw:
+					self._data.raw[field.target] = []
+				self._data.raw[field.target].extend(value)
 		# Access all the fields to trigger parsing/validation
 		for field_name in self._meta.fields.keys():
 			getattr(self, field_name)
