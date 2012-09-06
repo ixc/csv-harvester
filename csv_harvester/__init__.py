@@ -285,10 +285,14 @@ class Harvester(object):
 		model = self._meta.model()
 		for name, field in self._meta.fields.items():
 			if field.in_model:
-				setattr(model, name, getattr(self, name))
+				if isinstance(field, columns.ForeignKey):
+					setattr(model, name, field.lookup(getattr(self, name)))
+				else:
+					setattr(model, name, getattr(self, name))
 		model.save()
-		# Now that we have a PK, we can save the M2Ms
+		# Now that we have a PK, we can save the M2Ms and inlines
 		self.save_m2m(model)
+		self.save_inlines(model)
 		return model
 	
 	def save_m2m(self, model):
@@ -299,8 +303,24 @@ class Harvester(object):
 			if not isinstance(field, columns.ManyToManyField):
 				continue
 			for value in getattr(self, field_name):
-				getattr(model, field_name).add(field.lookup(value))
-		
+				related_object = field.lookup(value)
+				if related_object:
+					if hasattr(related_object, '__iter__'):
+						getattr(model, field_name).add(*related_object)
+					else:
+						getattr(model, field_name).add(related_object)
+	
+	def save_inlines(self, model):
+		"""
+		  :param model: A model instance to which to associate the inlines with.
+		  """
+		for field_name, field in self._meta.fields.items():
+			if not isinstance(field, columns.InlineField):
+				continue
+			for value in getattr(self, field_name):
+				for related_object in field.lookup(value):
+					setattr(related_object, field.fk_name, model)
+					related_object.save()
 	
 	def final_clean(self):
 		"""

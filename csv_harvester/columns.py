@@ -192,12 +192,7 @@ class BooleanField(Field):
 
 # RELATIONAL FIELDS
 
-class ManyToManyField(Field):
-	"""
-	When specifying a clean_*_field method, keep in mind that the final value
-	after cleaning is expected to be an iterable of values.
-	"""
-	
+class _RelatedField(Field):
 	def __init__(self, model, lookup='title', **kwargs):
 		"""
 		:param model: the related model class.
@@ -207,15 +202,14 @@ class ManyToManyField(Field):
 			model matching it should be used.
 		
 		Note that the ``in_model`` argument has no effect here. It is set to
-		False to simplify the saving logic, but ManyToMany fields are always
+		False to simplify the saving logic, but related fields are always
 		assumed to exist on the model.
 		"""
 		self.model = model
 		self._lookup = lookup
-		kwargs['in_model'] = False
 		if 'default' not in kwargs:
 			kwargs['default'] = []
-		super(ManyToManyField, self).__init__(**kwargs)
+		super(_RelatedField, self).__init__(**kwargs)
 	
 	def lookup(self, value):
 		"""
@@ -226,10 +220,22 @@ class ManyToManyField(Field):
 		if callable(self._lookup):
 			return self._lookup(value)
 		else:
+			if value is None:
+				return None
 			return self.model.objects.get_or_create(
 				**{self._lookup: value}
 			)[0]
-	
+
+class ManyToManyField(_RelatedField):
+	"""
+	When specifying a clean_*_field method, keep in mind that the final value
+	after cleaning is expected to be an iterable of values.
+	"""
+
+	def __init__(self, *args, **kwargs):
+		kwargs['in_model'] = False
+		super(ManyToManyField, self).__init__(*args, **kwargs)
+
 	def clean(self, data):
 		# Just in case we didn't receive an iterable
 		if not hasattr(data, '__iter__') or isinstance(data, basestring):
@@ -238,3 +244,25 @@ class ManyToManyField(Field):
 		# the regular Field logic on blank and default values can kick in
 		data = filter(bool, data) or None
 		return super(ManyToManyField, self).clean(data)
+	
+class ForeignKey(_RelatedField):
+	def clean(self, data):
+		return super(ForeignKey, self).clean(data) or None
+
+class InlineField(_RelatedField):
+	def __init__(self, *args, **kwargs):
+		if not 'fk_name' in kwargs:
+			raise constants.ConfigurationError(
+				'An "fk_name" argument is required for InlineFields.')
+		if not 'lookup' in kwargs:
+			raise constants.ConfigurationError(
+				'A "lookup" argument is required for InlineFields.')
+		if not callable(kwargs['lookup']):
+			raise constants.ConfigurationError(
+				'The "lookup" argument for InlineFields needs to be a callable.')
+		self.fk_name = kwargs.pop('fk_name')
+		kwargs['in_model'] = False
+		super(InlineField, self).__init__(*args, **kwargs)
+
+	def lookup(self, value):
+		return self._lookup(value)
