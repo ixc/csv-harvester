@@ -1,6 +1,7 @@
 import bisect
 import collections
 import csv
+import operator
 import pprint
 import warnings
 
@@ -139,8 +140,10 @@ class Harvester(object):
 		"""
 		# Validate the number of columns in data against the number of fields
 		# expected by this harvester and warn as necessary
-		count_difference = len(data) \
-			- len([f for f in self._meta.fields.values() if f.in_file])
+		count_difference = len(data) - reduce(
+			operator.add,
+			[f.colspan for f in self._meta.fields.values() if f.in_file]
+		)
 		if count_difference < 0:
 			warnings.warn(
 				'Number of columns defined in harvester exceeds the number of '
