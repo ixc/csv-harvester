@@ -85,9 +85,9 @@ class Ignore(Field):
 	"""
 	
 	def __init__(self, **kwargs):
-		kwargs.pop('in_file')
-		kwargs.pop('in_model')
-		kwargs.pop('target')
+		kwargs.pop('in_file', None)
+		kwargs.pop('in_model', None)
+		kwargs.pop('target', None)
 		super(Ignore, self).__init__(
 			in_file=True, in_model=False, target=None, **kwargs)
 	
